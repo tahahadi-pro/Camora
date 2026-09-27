@@ -6,17 +6,43 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "camora",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "supportsTablet": false,
+      "bundleIdentifier": "com.camora.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camora needs the camera to stream live CCTV video.",
+        "NSMicrophoneUsageDescription": "Camora needs the microphone for optional live audio.",
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      },
+      "icon": "./assets/expo.icon",
+      "bitcode": false
     },
     "android": {
+      "package": "com.camora.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0B0F14",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_CAMERA",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.WAKE_LOCK",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.BLUETOOTH"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -25,18 +51,58 @@
     },
     "plugins": [
       "expo-router",
+      "expo-dev-client",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#0B0F14",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Allow Camora to access your camera for live CCTV streaming.",
+          "microphonePermission": "Allow Camora to access your microphone for optional live audio."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Camora to access your camera to stream and scan QR codes.",
+          "microphonePermission": "Allow Camora to access your microphone for optional live audio.",
+          "recordAudioAndroid": true,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#22C55E",
+          "defaultChannel": "camora-streaming"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 24
+          }
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "df329c23-44de-4f68-9997-e703e82112f5"
+      }
+    },
+    "owner": "ksbinfotech"
   }
 }
