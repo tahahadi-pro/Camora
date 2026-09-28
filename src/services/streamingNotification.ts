@@ -1,10 +1,19 @@
-import * as Notifications from 'expo-notifications';
+import { isRunningInExpoGo } from 'expo';
 import { Platform } from 'react-native';
+
+type NotificationsModule = typeof import('expo-notifications');
 
 const CHANNEL_ID = 'camora-streaming';
 const NOTIFICATION_ID = 'camora-streaming-active';
 
-Notifications.setNotificationHandler({
+// Expo Go on Android (SDK 53+) throws as soon as expo-notifications is imported.
+const Notifications: NotificationsModule | null =
+  Platform.OS === 'android' && isRunningInExpoGo()
+    ? null
+    : // eslint-disable-next-line @typescript-eslint/no-require-imports
+      (require('expo-notifications') as NotificationsModule);
+
+Notifications?.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
     shouldShowList: true,
@@ -19,7 +28,7 @@ Notifications.setNotificationHandler({
  * with FOREGROUND_SERVICE_* permissions (configured in app.json).
  */
 export async function ensureStreamingChannel() {
-  if (Platform.OS !== 'android') return;
+  if (!Notifications || Platform.OS !== 'android') return;
 
   await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
     name: 'CCTV Streaming',
@@ -31,6 +40,8 @@ export async function ensureStreamingChannel() {
 }
 
 export async function showStreamingNotification() {
+  if (!Notifications) return;
+
   await ensureStreamingChannel();
 
   if (Platform.OS === 'android') {
@@ -60,13 +71,16 @@ export async function showStreamingNotification() {
 }
 
 export async function hideStreamingNotification() {
-  await Notifications.dismissNotificationAsync(NOTIFICATION_ID);
+  await Notifications?.dismissNotificationAsync(NOTIFICATION_ID);
 }
 
 export function addStopStreamingListener(onStop: () => void) {
+  if (!Notifications) return { remove: () => {} };
+
+  const { DEFAULT_ACTION_IDENTIFIER } = Notifications;
   return Notifications.addNotificationResponseReceivedListener((response) => {
     const action = response.actionIdentifier;
-    if (action === 'STOP_STREAMING' || action === Notifications.DEFAULT_ACTION_IDENTIFIER) {
+    if (action === 'STOP_STREAMING' || action === DEFAULT_ACTION_IDENTIFIER) {
       // User tapped the notification — treat as awareness; Stop is explicit via app UI.
       if (action === 'STOP_STREAMING') onStop();
     }

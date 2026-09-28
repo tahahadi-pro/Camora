@@ -1,11 +1,11 @@
-import { router } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { ControlButton } from '@/components/ControlButton';
 import { WebRtcMissingBanner } from '@/components/WebRtcMissingBanner';
 import { Colors, Spacing } from '@/constants/theme';
-import { config } from '@/utils/config';
 import { isWebRtcAvailable } from '@/services/webrtc/native';
+import { config } from '@/utils/config';
+import { router } from 'expo-router';
+import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function HomeScreen() {
   const webrtcReady = isWebRtcAvailable();
@@ -15,9 +15,6 @@ export default function HomeScreen() {
       <View style={styles.container}>
         <View style={styles.hero}>
           <Text style={styles.brand}>CAMORA</Text>
-          <Text style={styles.tagline}>
-            Up to 10 cameras. Each phone picks a number 1–10. Viewer enters that number to watch.
-          </Text>
           <WebRtcMissingBanner />
         </View>
 
@@ -70,12 +67,6 @@ const styles = StyleSheet.create({
     fontSize: 48,
     fontWeight: '900',
     letterSpacing: 4,
-  },
-  tagline: {
-    color: Colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    maxWidth: 320,
   },
   actions: {
     gap: Spacing.md,
