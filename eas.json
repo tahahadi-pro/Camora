@@ -19,6 +19,9 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SIGNALING_URL": "https://camora-signaling-server.onrender.com"
       }
     },
     "production": {
