@@ -96,7 +96,8 @@ class CamoraStreamService : Service() {
   companion object {
     const val EXTRA_TITLE = "title"
     const val EXTRA_BODY = "body"
-    private const val CHANNEL_ID = "camora-camera-host"
+    // New id because Android never lowers the importance of an existing channel.
+    private const val CHANNEL_ID = "camora-camera-host-silent"
     private const val NOTIFICATION_ID = 4107
     private const val TAG = "CamoraStreamService"
 
@@ -113,10 +114,14 @@ class CamoraStreamService : Service() {
     private fun buildNotification(context: Context, title: String, body: String): Notification {
       val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.deleteNotificationChannel("camora-camera-host")
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
           manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "CCTV Camera", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(CHANNEL_ID, "CCTV Camera", NotificationManager.IMPORTANCE_MIN).apply {
               setShowBadge(false)
+              setSound(null, null)
+              enableVibration(false)
+              lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
           )
         }
@@ -135,6 +140,9 @@ class CamoraStreamService : Service() {
           PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
       }
+
+      @Suppress("DEPRECATION")
+      builder.setPriority(Notification.PRIORITY_MIN)
 
       return builder
         .setContentTitle(title)

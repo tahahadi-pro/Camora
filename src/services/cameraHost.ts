@@ -1,19 +1,17 @@
 import { useSyncExternalStore } from 'react';
+import { AppState } from 'react-native';
 import { Camera } from 'expo-camera';
 import { ERROR_MESSAGES } from '@/constants/theme';
 import { SignalingClient } from '@/services/signaling/client';
-import {
-  ensureNotificationPermission,
-  hideStreamingNotification,
-  showStreamingNotification,
-} from '@/services/streamingNotification';
 import { isWebRtcAvailable } from '@/services/webrtc/native';
 import { WebRtcSession, WebRtcDebugState } from '@/services/webrtc/session';
 import { loadSavedCameraSlot, saveCameraSlot } from '@/utils/cameraSlots';
 import { config } from '@/utils/config';
 import { mapServerError } from '@/utils/errors';
 import {
-  isBackgroundServiceSupported,
+  consumeBackgroundLaunch,
+  moveAppToBackground,
+  setAutoStartEnabled,
   startBackgroundService,
   stopBackgroundService,
   updateBackgroundService,
@@ -43,6 +41,7 @@ export type CameraHostState = {
 };
 
 const RECLAIM_RETRY_MS = 5000;
+const BACKGROUND_LAUNCH_SETTLE_MS = 2000;
 const NOTIFICATION_TITLE = 'Camora';
 
 /**
@@ -96,9 +95,26 @@ class CameraHost {
     if (this.state.slot != null) await this.stop();
 
     saveCameraSlot(slot);
+    setAutoStartEnabled(true);
     this.set({ status: 'connecting', slot, error: null, micOn: options.micOn ?? this.state.micOn });
     this.connectSignaling(slot);
     await this.showNotification(`Camera ${slot} is ready — viewers can watch anytime`);
+    await this.prepareCamera();
+  }
+
+  /**
+   * react-native-webrtc can only create the camera while an Activity exists, i.e. while the
+   * app is open. Create it now and keep it paused, so a viewer can resume it later from the
+   * background.
+   */
+  async prepareCamera() {
+    if (this.state.slot == null || this.session?.getLocalStream()) return;
+    try {
+      await this.ensureCamera();
+    } catch (e) {
+      console.warn('Camera could not be prepared', e);
+    }
+    this.releaseCameraIfUnused();
   }
 
   async stop() {
@@ -282,7 +298,18 @@ class CameraHost {
         });
       await this.cameraPromise;
     }
+    this.setVideoCapturing(true);
     return session;
+  }
+
+  /** Disabling a video track stops the native capturer (camera off) without destroying it. */
+  private setVideoCapturing(capturing: boolean) {
+    this.session
+      ?.getLocalStream()
+      ?.getVideoTracks()
+      .forEach((track) => {
+        if (track.enabled !== capturing) track.enabled = capturing;
+      });
   }
 
   /** Turns the camera off when neither a viewer nor the camera screen needs it. */
@@ -290,6 +317,10 @@ class CameraHost {
     if (this.previewHolders > 0 || this.state.viewerConnected) return;
     if (this.cameraPromise) {
       void this.cameraPromise.catch(() => {}).then(() => this.releaseCameraIfUnused());
+      return;
+    }
+    if (this.state.slot != null) {
+      this.setVideoCapturing(false);
       return;
     }
     this.session?.dispose();
@@ -303,14 +334,11 @@ class CameraHost {
     }
   }
 
+  // Notification permission is deliberately never requested, so Android 13+ hides the
+  // foreground-service notification that Android requires for background camera access.
   private async showNotification(body: string) {
     try {
-      if (isBackgroundServiceSupported()) {
-        await ensureNotificationPermission();
-        await startBackgroundService(NOTIFICATION_TITLE, body);
-      } else {
-        await showStreamingNotification();
-      }
+      await startBackgroundService(NOTIFICATION_TITLE, body);
     } catch (e) {
       console.warn('Background camera service failed to start', e);
     }
@@ -326,11 +354,7 @@ class CameraHost {
 
   private async hideNotification() {
     try {
-      if (isBackgroundServiceSupported()) {
-        await stopBackgroundService();
-      } else {
-        await hideStreamingNotification();
-      }
+      await stopBackgroundService();
     } catch {
       // ignore
     }
@@ -348,11 +372,30 @@ export function useCameraHost() {
  * anyone opening the camera screen. Needs camera permission granted earlier.
  */
 export async function resumeSavedCameraHost() {
+  const autoLaunched = consumeBackgroundLaunch();
   if (!isWebRtcAvailable() || cameraHost.isRunning()) return;
   const slot = loadSavedCameraSlot();
-  if (slot == null) return;
+  if (slot == null) {
+    setAutoStartEnabled(false);
+    return;
+  }
   const cam = await Camera.getCameraPermissionsAsync();
   if (!cam.granted) return;
   const mic = await Camera.getMicrophonePermissionsAsync();
   await cameraHost.start(slot, { micOn: mic.granted });
+  if (autoLaunched) {
+    // The foreground service must reach startForeground() while the app is still visible.
+    await new Promise((resolve) => setTimeout(resolve, BACKGROUND_LAUNCH_SETTLE_MS));
+    await moveAppToBackground();
+  }
 }
+
+/** Stops the camera and stops Camora from re-opening itself after a reboot. */
+export async function disableCameraHost() {
+  setAutoStartEnabled(false);
+  await cameraHost.stop();
+}
+
+AppState.addEventListener('change', (next) => {
+  if (next === 'active') void cameraHost.prepareCamera();
+});

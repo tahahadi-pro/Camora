@@ -2,8 +2,11 @@ package expo.modules.camorabackground
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import expo.modules.kotlin.exception.Exceptions
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -36,5 +39,29 @@ class CamoraBackgroundModule : Module() {
     AsyncFunction("stop") {
       context.stopService(Intent(context, CamoraStreamService::class.java))
     }
+
+    Function("setAutoStartEnabled") { enabled: Boolean ->
+      CamoraAutoStart.setEnabled(context, enabled)
+    }
+
+    Function("canAutoStart") {
+      CamoraAutoStart.canLaunchFromBackground(context)
+    }
+
+    Function("consumeBackgroundLaunch") {
+      CamoraAutoStart.consumePendingLaunch(context)
+    }
+
+    AsyncFunction("openAutoStartSettings") {
+      val intent = Intent(
+        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+        Uri.parse("package:${context.packageName}")
+      ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      context.startActivity(intent)
+    }
+
+    AsyncFunction("moveToBackground") {
+      appContext.currentActivity?.moveTaskToBack(true)
+    }.runOnQueue(Queues.MAIN)
   }
 }

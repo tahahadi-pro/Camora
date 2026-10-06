@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Platform,
   Pressable,
   ScrollView,
@@ -21,7 +22,8 @@ import { WebRtcMissingBanner } from '@/components/WebRtcMissingBanner';
 import { Colors, ERROR_MESSAGES, Spacing } from '@/constants/theme';
 import { useDevMode } from '@/hooks/useLatency';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
-import { cameraHost, useCameraHost } from '@/services/cameraHost';
+import { cameraHost, disableCameraHost, useCameraHost } from '@/services/cameraHost';
+import { canAutoStart, openAutoStartSettings } from '../../modules/camora-background';
 import { isWebRtcAvailable } from '@/services/webrtc/native';
 import { config } from '@/utils/config';
 import { encodeConnectionPayload, toDeepLink } from '@/utils/connectionPayload';
@@ -60,6 +62,7 @@ export default function CameraScreen() {
     requestedSlot ?? host.slot ?? savedSlot ?? 1,
   );
   const [fullscreen, setFullscreen] = useState(false);
+  const [autoStartAllowed, setAutoStartAllowed] = useState(canAutoStart);
   const { network } = useNetworkStatus();
   const isDev = useDevMode();
 
@@ -126,6 +129,13 @@ export default function CameraScreen() {
   }, [phase]);
 
   useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') setAutoStartAllowed(canAutoStart());
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
     if (!streaming) return;
     void activateKeepAwakeAsync('camora-stream');
     return () => {
@@ -139,7 +149,7 @@ export default function CameraScreen() {
   };
 
   const forgetNumber = async () => {
-    await cameraHost.stop();
+    await disableCameraHost();
     clearSavedCameraSlot();
     setSavedSlot(null);
   };
@@ -276,6 +286,19 @@ export default function CameraScreen() {
                   ? 'You can leave this screen, close Camora to the background or lock the phone. The camera turns on by itself when a viewer starts watching.'
                   : 'You can leave this screen. Keep Camora open on this iPhone — iOS does not allow the camera to run in the background.'}
               </Text>
+              {Platform.OS === 'android' && !autoStartAllowed ? (
+                <View style={styles.autoStartBox}>
+                  <Text style={styles.note}>
+                    To come back by itself after the phone restarts, Camora needs the “Display over
+                    other apps” permission.
+                  </Text>
+                  <ControlButton
+                    variant="primary"
+                    label="Allow auto-start"
+                    onPress={() => void openAutoStartSettings()}
+                  />
+                </View>
+              ) : null}
             </>
           ) : null}
 
@@ -392,6 +415,14 @@ const styles = StyleSheet.create({
   },
   slotBlock: {
     gap: Spacing.sm,
+  },
+  autoStartBox: {
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.surfaceElevated,
   },
   slotLabel: {
     color: Colors.text,
