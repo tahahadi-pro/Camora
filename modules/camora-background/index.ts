@@ -10,7 +10,14 @@ type CamoraBackgroundModule = {
   consumeBackgroundLaunch(): boolean;
   openAutoStartSettings(): Promise<void>;
   moveToBackground(): Promise<void>;
+  startKeepAlive(): Promise<void>;
+  stopKeepAlive(): Promise<void>;
+  isIgnoringBatteryOptimizations(): boolean;
+  requestIgnoreBatteryOptimizations(): Promise<void>;
 };
+
+/** Headless task key the native keep-alive starts; must be registered with AppRegistry. */
+export const KEEP_ALIVE_TASK = 'CamoraKeepAlive';
 
 /** Android-only foreground service; null on iOS, web and Expo Go. */
 const native = requireOptionalNativeModule<CamoraBackgroundModule>('CamoraBackground');
@@ -52,4 +59,21 @@ export async function openAutoStartSettings() {
 
 export async function moveAppToBackground() {
   await native?.moveToBackground();
+}
+
+/** Keeps JS timers (socket reconnects, retries) running while the app is in the background. */
+export async function startKeepAlive() {
+  await native?.startKeepAlive();
+}
+
+export async function stopKeepAlive() {
+  await native?.stopKeepAlive();
+}
+
+export function isIgnoringBatteryOptimizations() {
+  return native?.isIgnoringBatteryOptimizations() ?? true;
+}
+
+export async function requestIgnoreBatteryOptimizations() {
+  await native?.requestIgnoreBatteryOptimizations();
 }

@@ -45,6 +45,7 @@ export default function ViewerScreen() {
   const [fullscreen, setFullscreen] = useState(false);
   const [debug, setDebug] = useState<WebRtcDebugState | null>(null);
   const [peerState, setPeerState] = useState('new');
+  const [controlReady, setControlReady] = useState(false);
 
   const sessionRef = useRef<WebRtcSession | null>(null);
   const roomCodeRef = useRef('');
@@ -220,6 +221,7 @@ export default function ViewerScreen() {
           },
           onDebug: setDebug,
           onError: (msg) => setError(msg),
+          onControlChannelChange: setControlReady,
         });
 
         sessionRef.current = session;
@@ -267,6 +269,15 @@ export default function ViewerScreen() {
     const next = !audioOn;
     setAudioOn(next);
     sessionRef.current?.setRemoteAudioEnabled(next);
+  };
+
+  const switchRemoteCamera = () => {
+    if (!sessionRef.current?.sendControl({ type: 'switch-camera' })) {
+      Alert.alert(
+        'Switch camera',
+        'Not available yet. Wait for the video to start, and make sure the camera phone has the latest Camora version.',
+      );
+    }
   };
 
   const takeScreenshotHint = () => {
@@ -405,6 +416,11 @@ export default function ViewerScreen() {
       <View style={styles.controls}>
         <ControlButton label={fullscreen ? 'Exit Full' : 'Fullscreen'} onPress={() => setFullscreen((v) => !v)} />
         <ControlButton label={audioOn ? 'Audio ON' : 'Audio OFF'} onPress={toggleAudio} />
+        <ControlButton
+          label="Switch Cam"
+          onPress={switchRemoteCamera}
+          style={controlReady ? undefined : styles.dimmed}
+        />
         <ControlButton label="Screenshot" onPress={takeScreenshotHint} />
       </View>
 
@@ -541,5 +557,8 @@ const styles = StyleSheet.create({
   error: {
     color: Colors.danger,
     fontSize: 13,
+  },
+  dimmed: {
+    opacity: 0.5,
   },
 });

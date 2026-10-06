@@ -14,6 +14,10 @@ type MediaStream = import('react-native-webrtc').MediaStream;
 type RTCIceCandidate = import('react-native-webrtc').RTCIceCandidate;
 type RTCPeerConnection = import('react-native-webrtc').RTCPeerConnection;
 type MediaStreamTrack = import('react-native-webrtc').MediaStreamTrack;
+type RTCDataChannel = import('react-native-webrtc/lib/typescript/RTCDataChannel').default;
+
+/** Commands the viewer sends to the camera phone over the WebRTC data channel. */
+export type ControlMessage = { type: 'switch-camera' };
 type RTCSessionDescriptionInit = ConstructorParameters<
   typeof import('react-native-webrtc').RTCSessionDescription
 >[0];
@@ -29,6 +33,8 @@ type PeerCallbacks = {
   onIceConnectionStateChange?: (state: string) => void;
   onDebug?: (debug: WebRtcDebugState) => void;
   onError?: (message: string) => void;
+  onControlMessage?: (message: ControlMessage) => void;
+  onControlChannelChange?: (open: boolean) => void;
 };
 
 /**
@@ -36,6 +42,7 @@ type PeerCallbacks = {
  */
 export class WebRtcSession {
   private pc: RTCPeerConnection | null = null;
+  private controlChannel: RTCDataChannel | null = null;
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
   private role: PeerRole;
@@ -207,17 +214,48 @@ export class WebRtcSession {
       this.callbacks.onDebug?.(this.getDebugState());
     };
 
-    if (this.role === 'camera' && this.localStream) {
-      this.localStream.getTracks().forEach((track) => {
+    if (this.role === 'camera') {
+      this.localStream?.getTracks().forEach((track) => {
         pc.addTrack(track, this.localStream!);
       });
-    } else if (this.role === 'viewer') {
+      // Must exist before createOffer() so the SDP includes the data channel.
+      this.attachControlChannel(pc.createDataChannel('control'));
+    } else {
       pc.addTransceiver('video', { direction: 'recvonly' });
       pc.addTransceiver('audio', { direction: 'recvonly' });
+      pc.ondatachannel = (event: { channel: RTCDataChannel }) => {
+        if (event.channel.label === 'control') this.attachControlChannel(event.channel);
+      };
     }
 
     this.pc = pc;
     return pc;
+  }
+
+  private attachControlChannel(channel: RTCDataChannel) {
+    this.controlChannel = channel;
+    const isCurrent = () => this.controlChannel === channel;
+    channel.onopen = () => {
+      if (isCurrent()) this.callbacks.onControlChannelChange?.(true);
+    };
+    channel.onclose = () => {
+      if (isCurrent()) this.callbacks.onControlChannelChange?.(false);
+    };
+    channel.onmessage = (event: { data: unknown }) => {
+      if (!isCurrent() || typeof event.data !== 'string') return;
+      try {
+        this.callbacks.onControlMessage?.(JSON.parse(event.data) as ControlMessage);
+      } catch {
+        // ignore malformed messages
+      }
+    };
+  }
+
+  /** Returns false when the channel is not open yet. */
+  sendControl(message: ControlMessage): boolean {
+    if (this.controlChannel?.readyState !== 'open') return false;
+    this.controlChannel.send(JSON.stringify(message));
+    return true;
   }
 
   async createOffer() {
@@ -267,6 +305,16 @@ export class WebRtcSession {
   }
 
   closePeerConnection(stopLocal = false) {
+    if (this.controlChannel) {
+      try {
+        this.controlChannel.close();
+      } catch {
+        // ignore
+      }
+      this.controlChannel = null;
+      this.callbacks.onControlChannelChange?.(false);
+    }
+
     if (this.pc) {
       try {
         this.pc.close();

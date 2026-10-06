@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { AppState } from 'react-native';
+import { AppRegistry, AppState } from 'react-native';
 import { Camera } from 'expo-camera';
 import { ERROR_MESSAGES } from '@/constants/theme';
 import { SignalingClient } from '@/services/signaling/client';
@@ -9,11 +9,14 @@ import { loadSavedCameraSlot, saveCameraSlot } from '@/utils/cameraSlots';
 import { config } from '@/utils/config';
 import { mapServerError } from '@/utils/errors';
 import {
+  KEEP_ALIVE_TASK,
   consumeBackgroundLaunch,
   moveAppToBackground,
   setAutoStartEnabled,
   startBackgroundService,
+  startKeepAlive,
   stopBackgroundService,
+  stopKeepAlive,
   updateBackgroundService,
 } from '../../modules/camora-background';
 
@@ -39,6 +42,16 @@ export type CameraHostState = {
   debug: WebRtcDebugState | null;
   error: string | null;
 };
+
+let releaseKeepAliveTask: (() => void) | null = null;
+
+// Does no work itself: while its promise is pending, Android keeps JS timers running in the background.
+AppRegistry.registerHeadlessTask(KEEP_ALIVE_TASK, () => () =>
+  new Promise<void>((resolve) => {
+    releaseKeepAliveTask?.();
+    releaseKeepAliveTask = resolve;
+  }),
+);
 
 const RECLAIM_RETRY_MS = 5000;
 const BACKGROUND_LAUNCH_SETTLE_MS = 2000;
@@ -100,6 +113,11 @@ class CameraHost {
     this.connectSignaling(slot);
     await this.showNotification(`Camera ${slot} is ready — viewers can watch anytime`);
     await this.prepareCamera();
+  }
+
+  reconnectIfNeeded() {
+    if (this.state.slot == null || this.signaling.isConnected()) return;
+    this.signaling.getSocket()?.connect();
   }
 
   /**
@@ -282,6 +300,9 @@ class CameraHost {
         onConnectionStateChange: (peerState) => this.set({ peerState }),
         onDebug: (debug) => this.set({ debug }),
         onError: (error) => this.set({ error }),
+        onControlMessage: (message) => {
+          if (message.type === 'switch-camera') void this.switchCamera();
+        },
       });
     }
     return this.session;
@@ -339,6 +360,7 @@ class CameraHost {
   private async showNotification(body: string) {
     try {
       await startBackgroundService(NOTIFICATION_TITLE, body);
+      await startKeepAlive();
     } catch (e) {
       console.warn('Background camera service failed to start', e);
     }
@@ -353,7 +375,10 @@ class CameraHost {
   }
 
   private async hideNotification() {
+    releaseKeepAliveTask?.();
+    releaseKeepAliveTask = null;
     try {
+      await stopKeepAlive();
       await stopBackgroundService();
     } catch {
       // ignore
@@ -397,5 +422,7 @@ export async function disableCameraHost() {
 }
 
 AppState.addEventListener('change', (next) => {
-  if (next === 'active') void cameraHost.prepareCamera();
+  if (next !== 'active') return;
+  cameraHost.reconnectIfNeeded();
+  void cameraHost.prepareCamera();
 });

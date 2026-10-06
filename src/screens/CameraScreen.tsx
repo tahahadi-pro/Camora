@@ -23,7 +23,12 @@ import { Colors, ERROR_MESSAGES, Spacing } from '@/constants/theme';
 import { useDevMode } from '@/hooks/useLatency';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { cameraHost, disableCameraHost, useCameraHost } from '@/services/cameraHost';
-import { canAutoStart, openAutoStartSettings } from '../../modules/camora-background';
+import {
+  canAutoStart,
+  isIgnoringBatteryOptimizations,
+  openAutoStartSettings,
+  requestIgnoreBatteryOptimizations,
+} from '../../modules/camora-background';
 import { isWebRtcAvailable } from '@/services/webrtc/native';
 import { config } from '@/utils/config';
 import { encodeConnectionPayload, toDeepLink } from '@/utils/connectionPayload';
@@ -63,6 +68,7 @@ export default function CameraScreen() {
   );
   const [fullscreen, setFullscreen] = useState(false);
   const [autoStartAllowed, setAutoStartAllowed] = useState(canAutoStart);
+  const [batteryUnrestricted, setBatteryUnrestricted] = useState(isIgnoringBatteryOptimizations);
   const { network } = useNetworkStatus();
   const isDev = useDevMode();
 
@@ -130,7 +136,9 @@ export default function CameraScreen() {
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') setAutoStartAllowed(canAutoStart());
+      if (next !== 'active') return;
+      setAutoStartAllowed(canAutoStart());
+      setBatteryUnrestricted(isIgnoringBatteryOptimizations());
     });
     return () => sub.remove();
   }, []);
@@ -286,6 +294,19 @@ export default function CameraScreen() {
                   ? 'You can leave this screen, close Camora to the background or lock the phone. The camera turns on by itself when a viewer starts watching.'
                   : 'You can leave this screen. Keep Camora open on this iPhone — iOS does not allow the camera to run in the background.'}
               </Text>
+              {Platform.OS === 'android' && !batteryUnrestricted ? (
+                <View style={styles.autoStartBox}>
+                  <Text style={styles.note}>
+                    Some phones (Vivo, Oppo, Xiaomi) cut the internet of background apps, so viewers
+                    see “Waiting for camera”. Allow Camora to run without battery restrictions.
+                  </Text>
+                  <ControlButton
+                    variant="primary"
+                    label="Remove battery limit"
+                    onPress={() => void requestIgnoreBatteryOptimizations()}
+                  />
+                </View>
+              ) : null}
               {Platform.OS === 'android' && !autoStartAllowed ? (
                 <View style={styles.autoStartBox}>
                   <Text style={styles.note}>
