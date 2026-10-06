@@ -73,36 +73,45 @@ class CamoraBackgroundModule : Module() {
     // would freeze socket.io reconnects after the network drops. This task keeps them running.
     AsyncFunction("startKeepAlive") {
       val tasks = HeadlessJsTaskContext.getInstance(reactContext)
-      keepAliveTaskId?.let { if (tasks.isTaskRunning(it)) return@AsyncFunction }
-      keepAliveTaskId = tasks.startTask(
-        HeadlessJsTaskConfig(KEEP_ALIVE_TASK, Arguments.createMap(), 0, true)
-      )
+      val running = keepAliveTaskId?.let { tasks.isTaskRunning(it) } ?: false
+      if (!running) {
+        keepAliveTaskId = tasks.startTask(
+          HeadlessJsTaskConfig(KEEP_ALIVE_TASK, Arguments.createMap(), 0, true)
+        )
+      }
+      null
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("stopKeepAlive") {
       keepAliveTaskId?.let { HeadlessJsTaskContext.getInstance(reactContext).finishTask(it) }
       keepAliveTaskId = null
+      null
     }.runOnQueue(Queues.MAIN)
 
     Function("isIgnoringBatteryOptimizations") {
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return@Function true
-      val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-      power.isIgnoringBatteryOptimizations(context.packageName)
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+        true
+      } else {
+        val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        power.isIgnoringBatteryOptimizations(context.packageName)
+      }
     }
 
     AsyncFunction("requestIgnoreBatteryOptimizations") {
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return@AsyncFunction
-      val intent = Intent(
-        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-        Uri.parse("package:${context.packageName}")
-      ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      try {
-        context.startActivity(intent)
-      } catch (e: Exception) {
-        context.startActivity(
-          Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val intent = Intent(
+          Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+          Uri.parse("package:${context.packageName}")
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+          context.startActivity(intent)
+        } catch (e: Exception) {
+          context.startActivity(
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          )
+        }
       }
+      null
     }
   }
 
