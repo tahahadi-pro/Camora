@@ -12,7 +12,7 @@
         "gradleCommand": ":app:assembleDebug"
       },
       "env": {
-        "EXPO_PUBLIC_SIGNALING_URL": "http://YOUR_LAN_IP:3001"
+        "EXPO_PUBLIC_SIGNALING_URL": "http://10.226.251.200:3001"
       }
     },
     "preview": {
@@ -22,6 +22,7 @@
       }
     },
     "production": {
+      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
       },

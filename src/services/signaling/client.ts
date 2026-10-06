@@ -38,7 +38,7 @@ type SignalingEvents = {
   connect_error: (error: Error) => void;
 };
 
-class SignalingClient {
+export class SignalingClient {
   private socket: Socket | null = null;
   private url: string = config.signalingUrl;
 
@@ -54,8 +54,9 @@ class SignalingClient {
       transports: ['websocket'],
       autoConnect: true,
       reconnection: true,
-      reconnectionAttempts: config.reconnectMaxAttempts,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: config.reconnectDelayMs,
+      reconnectionDelayMax: 5000,
       timeout: 12000,
     });
 

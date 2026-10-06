@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { Colors } from '@/constants/theme';
+import { resumeSavedCameraHost } from '@/services/cameraHost';
 import { getWebRtcNative } from '@/services/webrtc/native';
 
 SplashScreen.preventAutoHideAsync();
@@ -13,6 +14,7 @@ getWebRtcNative();
 export default function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
+    void resumeSavedCameraHost().catch((e) => console.warn('Camera auto-start failed', e));
   }, []);
 
   return (

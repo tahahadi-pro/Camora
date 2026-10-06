@@ -6,6 +6,7 @@ export function attachSignaling(io, roomManager) {
   io.on('connection', (socket) => {
     socket.data.role = null;
     socket.data.roomCode = null;
+    console.log(`[camora] socket connected ${socket.id} from ${socket.handshake.address}`);
 
     socket.on('create-room', (payload, ack) => {
       let data = payload;
@@ -33,12 +34,20 @@ export function attachSignaling(io, roomManager) {
           return;
         }
 
+        // A camera that reconnected gets a new socket id; free the slot if the old socket is gone.
+        const previous = roomManager.getRoom(data?.cameraId);
+        if (previous?.cameraSocketId && !io.sockets.sockets.has(previous.cameraSocketId)) {
+          roomManager.removeCamera(previous);
+          roomManager.removeViewer(previous);
+        }
+
         const room = roomManager.createRoom(socket.id, {
           cameraId: data?.cameraId,
         });
         socket.join(room.code);
         socket.data.role = 'camera';
         socket.data.roomCode = room.code;
+        console.log(`[camora] camera ${room.code} online (${socket.id})`);
 
         if (typeof callback === 'function') {
           callback({
@@ -55,6 +64,7 @@ export function attachSignaling(io, roomManager) {
           cameraId: room.cameraId,
         });
       } catch (error) {
+        console.log(`[camora] create-room ${data?.cameraId} failed: ${error.code || error.message}`);
         if (typeof callback === 'function') {
           callback({
             ok: false,
@@ -68,6 +78,7 @@ export function attachSignaling(io, roomManager) {
     socket.on('join-room', ({ roomCode, sessionToken } = {}, ack) => {
       try {
         const result = roomManager.joinRoom(roomCode, socket.id);
+        console.log(`[camora] viewer join ${roomCode}: ${result.ok ? 'ok' : result.error}`);
         if (!result.ok) {
           if (typeof ack === 'function') ack(result);
           return;
@@ -151,6 +162,7 @@ export function attachSignaling(io, roomManager) {
 
     socket.on('leave-room', (ack) => {
       const result = roomManager.handleDisconnect(socket.id);
+      if (result) console.log(`[camora] ${result.role} left ${result.roomCode}`);
       if (result?.notifySocketId) {
         io.to(result.notifySocketId).emit(result.event, {
           roomCode: result.roomCode,
@@ -168,8 +180,12 @@ export function attachSignaling(io, roomManager) {
       }
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
       const result = roomManager.handleDisconnect(socket.id);
+      console.log(
+        `[camora] socket disconnected ${socket.id} (${reason})` +
+          (result ? ` — ${result.role} of ${result.roomCode}` : ''),
+      );
       if (result?.notifySocketId) {
         io.to(result.notifySocketId).emit(result.event, {
           roomCode: result.roomCode,

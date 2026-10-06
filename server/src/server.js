@@ -5,6 +5,7 @@ import cors from 'cors';
 import { Server } from 'socket.io';
 import { FIXED_CAMERA_COUNT, RoomManager } from './rooms.js';
 import { attachSignaling } from './signaling.js';
+import { startTurnServer } from './turn.js';
 
 const PORT = Number(process.env.PORT || 3001);
 const ROOM_TTL_MS = Number(process.env.ROOM_TTL_MS || 4 * 60 * 60 * 1000);
@@ -116,8 +117,11 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[camora] Use WSS/HTTPS in production behind a reverse proxy.`);
 });
 
+const turnServer = startTurnServer();
+
 function shutdown() {
   console.log('[camora] Shutting down...');
+  turnServer?.stop();
   roomManager.destroy();
   io.close();
   server.close(() => process.exit(0));

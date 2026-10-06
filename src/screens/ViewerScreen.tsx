@@ -27,7 +27,10 @@ import { normalizeCameraCode } from '@/utils/cameraSlots';
 
 type MediaStream = import('react-native-webrtc').MediaStream;
 
-type Phase = 'enter' | 'connecting' | 'live' | 'lost';
+type Phase = 'enter' | 'connecting' | 'waiting' | 'live' | 'lost';
+
+const WAIT_RETRY_MS = 3000;
+const WAITABLE_ERRORS = new Set(['CAMERA_OFFLINE', 'ROOM_NOT_FOUND']);
 
 export default function ViewerScreen() {
   const params = useLocalSearchParams<{ code?: string; token?: string; payload?: string }>();
@@ -45,9 +48,31 @@ export default function ViewerScreen() {
 
   const sessionRef = useRef<WebRtcSession | null>(null);
   const roomCodeRef = useRef('');
+  const waitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectRef = useRef<(room: string, token?: string, signalingUrl?: string) => Promise<void>>(
+    async () => {},
+  );
   const { network, onReconnect } = useNetworkStatus();
   const latencyMs = useLatency(phase === 'live');
   const isDev = useDevMode();
+
+  const clearWait = useCallback(() => {
+    if (waitTimerRef.current) {
+      clearTimeout(waitTimerRef.current);
+      waitTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleRetry = useCallback(
+    (room: string, token = '', signalingUrl = '') => {
+      if (waitTimerRef.current) clearTimeout(waitTimerRef.current);
+      waitTimerRef.current = setTimeout(
+        () => void connectRef.current(room, token, signalingUrl),
+        WAIT_RETRY_MS,
+      );
+    },
+    [],
+  );
 
   const cleanup = useCallback(async () => {
     try {
@@ -63,9 +88,10 @@ export default function ViewerScreen() {
 
   useEffect(() => {
     return () => {
+      clearWait();
       cleanup();
     };
-  }, [cleanup]);
+  }, [cleanup, clearWait]);
 
   useEffect(() => {
     if (!isWebRtcAvailable()) return;
@@ -107,9 +133,10 @@ export default function ViewerScreen() {
     });
 
     signaling.on('camera-disconnected', () => {
-      setPhase('lost');
-      setError(ERROR_MESSAGES.CONNECTION_LOST);
+      setPhase('waiting');
+      setError(null);
       setRemoteStream(null);
+      scheduleRetry(activeRoom);
     });
 
     signaling.on('disconnect', () => {
@@ -117,7 +144,7 @@ export default function ViewerScreen() {
         setPhase((p) => (p === 'live' ? 'lost' : p));
       }
     });
-  }, []);
+  }, [scheduleRetry]);
 
   const connect = useCallback(
     async (room: string, token = '', signalingUrl = '') => {
@@ -132,8 +159,9 @@ export default function ViewerScreen() {
         return;
       }
 
+      clearWait();
       setError(null);
-      setPhase('connecting');
+      setPhase((p) => (p === 'waiting' ? 'waiting' : 'connecting'));
       setRoomCode(normalized);
       roomCodeRef.current = normalized;
 
@@ -160,6 +188,11 @@ export default function ViewerScreen() {
 
         const result = await signaling.joinRoom(normalized, token || undefined);
         if (!result.ok) {
+          if (result.error && WAITABLE_ERRORS.has(result.error)) {
+            setPhase('waiting');
+            scheduleRetry(normalized, token, signalingUrl);
+            return;
+          }
           setPhase('enter');
           setError(mapServerError(result.error));
           return;
@@ -181,6 +214,7 @@ export default function ViewerScreen() {
             if (state === 'failed') {
               setPhase('lost');
               setError(ERROR_MESSAGES.WEBRTC_FAILED);
+              scheduleRetry(normalized, token, signalingUrl);
             }
             if (state === 'connected') setPhase('live');
           },
@@ -193,16 +227,29 @@ export default function ViewerScreen() {
         attachSignalingHandlers(session, normalized);
         setPhase('live');
       } catch (e) {
+        if (e instanceof Error && e.message === 'SIGNALING_UNAVAILABLE') {
+          setPhase('waiting');
+          setError(ERROR_MESSAGES.SIGNALING_UNAVAILABLE);
+          scheduleRetry(normalized, token, signalingUrl);
+          return;
+        }
         setPhase('enter');
-        const message =
-          e instanceof Error && e.message === 'SIGNALING_UNAVAILABLE'
-            ? ERROR_MESSAGES.SIGNALING_UNAVAILABLE
-            : ERROR_MESSAGES.WEBRTC_FAILED;
-        setError(message);
+        setError(ERROR_MESSAGES.WEBRTC_FAILED);
       }
     },
-    [attachSignalingHandlers, cleanup],
+    [attachSignalingHandlers, cleanup, clearWait, scheduleRetry],
   );
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
+
+  const cancelWaiting = async () => {
+    clearWait();
+    roomCodeRef.current = '';
+    await cleanup();
+    setPhase('enter');
+  };
 
   useEffect(() => {
     onReconnect(() => {
@@ -278,14 +325,29 @@ export default function ViewerScreen() {
         <View style={styles.header}>
           <Pressable
             onPress={async () => {
+              clearWait();
               await cleanup();
               router.back();
             }}>
             <Text style={styles.back}>← Back</Text>
           </Pressable>
           <StatusPill
-            label={phase === 'live' ? 'LIVE' : phase === 'connecting' ? 'CONNECTING' : 'LOST'}
-            tone={phase === 'live' ? 'live' : phase === 'connecting' ? 'connecting' : 'disconnected'}
+            label={
+              phase === 'live'
+                ? 'LIVE'
+                : phase === 'connecting'
+                  ? 'CONNECTING'
+                  : phase === 'waiting'
+                    ? 'WAITING'
+                    : 'LOST'
+            }
+            tone={
+              phase === 'live'
+                ? 'live'
+                : phase === 'connecting' || phase === 'waiting'
+                  ? 'connecting'
+                  : 'disconnected'
+            }
           />
         </View>
       )}
@@ -299,6 +361,15 @@ export default function ViewerScreen() {
               <>
                 <ActivityIndicator color={Colors.primary} size="large" />
                 <Text style={styles.placeholderText}>Connecting…</Text>
+              </>
+            ) : phase === 'waiting' ? (
+              <>
+                <ActivityIndicator color={Colors.primary} size="large" />
+                <Text style={styles.placeholderText}>
+                  Waiting for Camera {roomCode} to come online…{'\n'}
+                  It connects automatically once the camera phone is streaming.
+                </Text>
+                <ControlButton label="Cancel" onPress={() => void cancelWaiting()} />
               </>
             ) : (
               <Text style={styles.placeholderText}>{error || 'Waiting for video…'}</Text>
@@ -315,7 +386,13 @@ export default function ViewerScreen() {
       {!fullscreen && (
         <View style={styles.metaBlock}>
           <Text style={styles.meta}>
-            {phase === 'live' ? 'Camera Connected' : phase === 'lost' ? 'Camera connection lost' : 'Connecting'}
+            {phase === 'live'
+              ? 'Camera Connected'
+              : phase === 'lost'
+                ? 'Camera connection lost'
+                : phase === 'waiting'
+                  ? 'Waiting for camera'
+                  : 'Connecting'}
           </Text>
           <Text style={styles.meta}>Latency: {formatLatency(latencyMs)}</Text>
           <Text style={[styles.meta, !network.isConnected && styles.error]}>

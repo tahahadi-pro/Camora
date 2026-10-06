@@ -1,12 +1,14 @@
 import { WebRtcMissingBanner } from '@/components/WebRtcMissingBanner';
 import { Colors, Spacing } from '@/constants/theme';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useCameraHost } from '@/services/cameraHost';
 import { isWebRtcAvailable } from '@/services/webrtc/native';
+import { isValidCameraSlot, loadSavedCameraSlot } from '@/utils/cameraSlots';
 import { config } from '@/utils/config';
 import { Image } from 'expo-image';
 import { router, type Href } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -93,6 +95,37 @@ export default function HomeScreen() {
   const webrtcReady = isWebRtcAvailable();
   const { network } = useNetworkStatus();
   const [showDetails, setShowDetails] = useState(false);
+  const [cameraNumber, setCameraNumber] = useState('');
+  const [savedSlot] = useState(loadSavedCameraSlot);
+  const host = useCameraHost();
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (openTimerRef.current) clearTimeout(openTimerRef.current);
+    };
+  }, []);
+
+  const openCamera = (slot: string) => {
+    if (openTimerRef.current) clearTimeout(openTimerRef.current);
+    openTimerRef.current = null;
+    setCameraNumber('');
+    router.push({ pathname: '/camera', params: { slot } });
+  };
+
+  const onCameraNumberChange = (text: string) => {
+    const clean = text.replace(/[^0-9]/g, '').slice(0, 2);
+    setCameraNumber(clean);
+    if (openTimerRef.current) clearTimeout(openTimerRef.current);
+    openTimerRef.current = null;
+    if (!isValidCameraSlot(clean)) return;
+    // "1" may be the start of "10", so give the user a moment to type the second digit.
+    if (clean === '1') {
+      openTimerRef.current = setTimeout(() => openCamera(clean), 1200);
+    } else {
+      openCamera(clean);
+    }
+  };
 
   const statusColor = network.isConnected ? Colors.live : Colors.recording;
   const knownType = network.type === 'wifi' || network.type === 'cellular';
@@ -137,6 +170,41 @@ export default function HomeScreen() {
 
         <Animated.View entering={FadeInDown.delay(200).duration(500)} style={styles.actions}>
           <Text style={styles.sectionLabel}>What would you like to do?</Text>
+          <View style={[styles.numberCard, !webrtcReady && styles.cardDisabled]}>
+            <Text style={styles.numberTitle}>Enter camera number (1–10)</Text>
+            <Text style={styles.cardSubtitle}>
+              This phone starts streaming as that camera right away
+              {host.slot == null && savedSlot != null ? ` · Last used: ${savedSlot}` : ''}
+            </Text>
+            {host.slot != null ? (
+              <Text style={styles.hostStatus}>
+                {host.viewerConnected
+                  ? `Camera ${host.slot} is live — a viewer is watching`
+                  : `Camera ${host.slot} is ready in the background — viewers can watch anytime`}
+              </Text>
+            ) : null}
+            <TextInput
+              accessibilityLabel="Camera number"
+              editable={webrtcReady}
+              keyboardType="number-pad"
+              returnKeyType="go"
+              maxLength={2}
+              value={cameraNumber}
+              onChangeText={onCameraNumberChange}
+              onSubmitEditing={() => {
+                // Only "1" waits on a timer; every other valid number has already navigated.
+                if (openTimerRef.current && isValidCameraSlot(cameraNumber)) {
+                  openCamera(cameraNumber);
+                }
+              }}
+              placeholder={savedSlot != null ? String(savedSlot) : '1'}
+              placeholderTextColor={Colors.textMuted}
+              style={styles.numberInput}
+            />
+            {cameraNumber !== '' && !isValidCameraSlot(cameraNumber) ? (
+              <Text style={styles.numberError}>Enter a number from 1 to 10</Text>
+            ) : null}
+          </View>
           <ActionCard
             highlight
             title="Use as Camera"
@@ -283,6 +351,40 @@ const styles = StyleSheet.create({
   },
   cardDisabled: {
     opacity: 0.45,
+  },
+  numberCard: {
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.surfaceElevated,
+  },
+  numberTitle: {
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  numberInput: {
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 14,
+    color: Colors.text,
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: 4,
+    paddingVertical: Spacing.sm,
+    textAlign: 'center',
+  },
+  numberError: {
+    color: Colors.danger,
+    fontSize: 13,
+  },
+  hostStatus: {
+    color: Colors.live,
+    fontSize: 13,
+    fontWeight: '600',
   },
   cardIcon: {
     width: 52,

@@ -41,6 +41,7 @@ export class WebRtcSession {
   private role: PeerRole;
   private facingMode: 'environment' | 'user' = 'environment';
   private micEnabled = false;
+  private remoteAudioEnabled = true;
   private callbacks: PeerCallbacks;
   private makingOffer = false;
   private webrtc = requireWebRtc();
@@ -89,14 +90,19 @@ export class WebRtcSession {
     });
 
     this.localStream = stream as MediaStream;
+    // Android can hand back audio tracks flagged as disabled, which sends silence.
+    this.localStream.getAudioTracks().forEach((track) => {
+      track.enabled = this.micEnabled;
+    });
     this.callbacks.onLocalStream?.(this.localStream);
     return this.localStream;
   }
 
-  async setMicrophoneEnabled(enabled: boolean) {
+  /** Returns true when a new audio track was added to a live peer connection. */
+  async setMicrophoneEnabled(enabled: boolean): Promise<boolean> {
     this.micEnabled = enabled;
 
-    if (!this.localStream) return;
+    if (!this.localStream) return false;
 
     const audioTracks = this.localStream.getAudioTracks();
     if (enabled && audioTracks.length === 0) {
@@ -104,15 +110,22 @@ export class WebRtcSession {
         audio: true,
         video: false,
       })) as MediaStream;
+      let added = false;
       audioOnly.getAudioTracks().forEach((track) => {
+        track.enabled = true;
         this.localStream?.addTrack(track);
-        this.pc?.addTrack(track, this.localStream!);
+        if (this.pc) {
+          this.pc.addTrack(track, this.localStream!);
+          added = true;
+        }
       });
-    } else {
-      audioTracks.forEach((track) => {
-        track.enabled = enabled;
-      });
+      return added;
     }
+
+    audioTracks.forEach((track) => {
+      track.enabled = enabled;
+    });
+    return false;
   }
 
   async switchCamera() {
@@ -167,6 +180,9 @@ export class WebRtcSession {
     pc.ontrack = (event: { streams?: MediaStream[] }) => {
       const stream = event.streams?.[0];
       if (stream) {
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = this.remoteAudioEnabled;
+        });
         this.remoteStream = stream;
         this.callbacks.onRemoteStream?.(this.remoteStream);
       }
@@ -226,7 +242,7 @@ export class WebRtcSession {
   }
 
   async handleAnswer(sdp: RTCSessionDescriptionInit) {
-    if (!this.pc) return;
+    if (!this.pc || this.pc.signalingState !== 'have-local-offer') return;
     const { RTCSessionDescription } = this.webrtc;
     await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
   }
@@ -244,6 +260,7 @@ export class WebRtcSession {
   }
 
   setRemoteAudioEnabled(enabled: boolean) {
+    this.remoteAudioEnabled = enabled;
     this.remoteStream?.getAudioTracks().forEach((track) => {
       track.enabled = enabled;
     });

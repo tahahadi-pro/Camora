@@ -39,17 +39,20 @@ export async function ensureStreamingChannel() {
   });
 }
 
+/** Android 13+ hides foreground-service notifications until this is granted. */
+export async function ensureNotificationPermission() {
+  if (!Notifications || Platform.OS !== 'android') return;
+  const { status } = await Notifications.getPermissionsAsync();
+  if (status !== 'granted') {
+    await Notifications.requestPermissionsAsync();
+  }
+}
+
 export async function showStreamingNotification() {
   if (!Notifications) return;
 
   await ensureStreamingChannel();
-
-  if (Platform.OS === 'android') {
-    const { status } = await Notifications.getPermissionsAsync();
-    if (status !== 'granted') {
-      await Notifications.requestPermissionsAsync();
-    }
-  }
+  await ensureNotificationPermission();
 
   await Notifications.scheduleNotificationAsync({
     identifier: NOTIFICATION_ID,
