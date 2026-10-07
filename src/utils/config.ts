@@ -4,7 +4,27 @@
  */
 import Constants from 'expo-constants';
 
-const DEFAULT_STUN = 'stun:stun.l.google.com:19302';
+const DEFAULT_STUN = [
+  'stun:stun.l.google.com:19302',
+  'stun:stun1.l.google.com:19302',
+];
+
+/**
+ * Free, shared TURN relay used as a safety net so streaming can still connect
+ * across strict/mobile NATs when no dedicated TURN is configured. It is
+ * rate-limited and not for heavy production use — set EXPO_PUBLIC_TURN_SERVER
+ * (comma-separated URLs), EXPO_PUBLIC_TURN_USERNAME and EXPO_PUBLIC_TURN_PASSWORD
+ * (see eas.json) to point at your own TURN server instead.
+ */
+const FALLBACK_TURN = {
+  urls: [
+    'turn:openrelay.metered.ca:80',
+    'turn:openrelay.metered.ca:443',
+    'turn:openrelay.metered.ca:443?transport=tcp',
+  ],
+  username: 'openrelayproject',
+  credential: 'openrelayproject',
+};
 
 function isLocalHost(host: string): boolean {
   return (
@@ -42,8 +62,8 @@ function parseList(value: string | undefined, fallback: string[]): string[] {
 
 export const config = {
   signalingUrl: resolveSignalingUrl(),
-  stunServers: parseList(process.env.EXPO_PUBLIC_STUN_SERVER, [DEFAULT_STUN]),
-  turnServer: process.env.EXPO_PUBLIC_TURN_SERVER?.trim() || '',
+  stunServers: parseList(process.env.EXPO_PUBLIC_STUN_SERVER, DEFAULT_STUN),
+  turnServers: parseList(process.env.EXPO_PUBLIC_TURN_SERVER, []),
   turnUsername: process.env.EXPO_PUBLIC_TURN_USERNAME?.trim() || '',
   turnPassword: process.env.EXPO_PUBLIC_TURN_PASSWORD?.trim() || '',
   isDev: __DEV__,
@@ -55,11 +75,19 @@ export const config = {
 export function getIceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = config.stunServers.map((urls) => ({ urls }));
 
-  if (config.turnServer) {
+  if (config.turnServers.length > 0) {
     servers.push({
-      urls: config.turnServer,
+      urls: config.turnServers,
       username: config.turnUsername || undefined,
       credential: config.turnPassword || undefined,
+    });
+  } else {
+    // No dedicated TURN configured: fall back to the shared relay so media can
+    // still be relayed when a direct peer-to-peer path is not possible.
+    servers.push({
+      urls: FALLBACK_TURN.urls,
+      username: FALLBACK_TURN.username,
+      credential: FALLBACK_TURN.credential,
     });
   }
 

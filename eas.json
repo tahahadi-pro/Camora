@@ -21,7 +21,10 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_SIGNALING_URL": "https://camora-signaling-server.onrender.com"
+        "EXPO_PUBLIC_SIGNALING_URL": "https://camora-signaling-server.onrender.com",
+        "EXPO_PUBLIC_TURN_SERVER": "turn:openrelay.metered.ca:80,turn:openrelay.metered.ca:443,turn:openrelay.metered.ca:443?transport=tcp",
+        "EXPO_PUBLIC_TURN_USERNAME": "openrelayproject",
+        "EXPO_PUBLIC_TURN_PASSWORD": "openrelayproject"
       }
     },
     "production": {
@@ -30,7 +33,10 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_SIGNALING_URL": "https://camora-signaling-server.onrender.com"
+        "EXPO_PUBLIC_SIGNALING_URL": "https://camora-signaling-server.onrender.com",
+        "EXPO_PUBLIC_TURN_SERVER": "turn:openrelay.metered.ca:80,turn:openrelay.metered.ca:443,turn:openrelay.metered.ca:443?transport=tcp",
+        "EXPO_PUBLIC_TURN_USERNAME": "openrelayproject",
+        "EXPO_PUBLIC_TURN_PASSWORD": "openrelayproject"
       }
     }
   },

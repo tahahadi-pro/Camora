@@ -35,6 +35,8 @@ type PeerCallbacks = {
   onError?: (message: string) => void;
   onControlMessage?: (message: ControlMessage) => void;
   onControlChannelChange?: (open: boolean) => void;
+  /** Fired when the connection drops and the offerer should renegotiate (ICE restart). */
+  onRestartNeeded?: () => void;
 };
 
 /**
@@ -52,6 +54,7 @@ export class WebRtcSession {
   private callbacks: PeerCallbacks;
   private makingOffer = false;
   private webrtc = requireWebRtc();
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(role: PeerRole, callbacks: PeerCallbacks = {}) {
     this.role = role;
@@ -201,12 +204,17 @@ export class WebRtcSession {
     };
 
     pc.oniceconnectionstatechange = () => {
-      this.callbacks.onIceConnectionStateChange?.(pc.iceConnectionState);
+      const state = pc.iceConnectionState;
+      this.callbacks.onIceConnectionStateChange?.(state);
       this.callbacks.onDebug?.(this.getDebugState());
-      if (pc.iceConnectionState === 'failed') {
-        this.callbacks.onError?.(
-          'WebRTC ICE failed. A TURN server is usually required across mobile networks.',
-        );
+      if (state === 'connected' || state === 'completed') {
+        this.clearRestartTimer();
+      } else if (state === 'disconnected') {
+        // Give ICE a short window to recover on its own before forcing a restart.
+        this.scheduleRestart(2500);
+      } else if (state === 'failed') {
+        this.clearRestartTimer();
+        this.callbacks.onRestartNeeded?.();
       }
     };
 
@@ -258,15 +266,34 @@ export class WebRtcSession {
     return true;
   }
 
-  async createOffer() {
+  async createOffer(options: { iceRestart?: boolean } = {}) {
     if (!this.pc) this.createPeerConnection();
     this.makingOffer = true;
     try {
-      const offer = await this.pc!.createOffer({});
+      const offer = await this.pc!.createOffer(options);
       await this.pc!.setLocalDescription(offer);
       return this.pc!.localDescription;
     } finally {
       this.makingOffer = false;
+    }
+  }
+
+  /** Re-offer with fresh ICE candidates so the camera can send a restart offer. */
+  private scheduleRestart(delayMs: number) {
+    if (this.restartTimer) return;
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      const state = this.pc?.iceConnectionState;
+      if (state === 'disconnected' || state === 'failed') {
+        this.callbacks.onRestartNeeded?.();
+      }
+    }, delayMs);
+  }
+
+  private clearRestartTimer() {
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
     }
   }
 
@@ -305,6 +332,7 @@ export class WebRtcSession {
   }
 
   closePeerConnection(stopLocal = false) {
+    this.clearRestartTimer();
     if (this.controlChannel) {
       try {
         this.controlChannel.close();

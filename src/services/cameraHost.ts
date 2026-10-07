@@ -84,6 +84,7 @@ class CameraHost {
   private cameraPromise: Promise<void> | null = null;
   private previewHolders = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private restarting = false;
 
   getState = () => this.state;
 
@@ -276,6 +277,26 @@ class CameraHost {
     }
   }
 
+  /**
+   * Recovers a dropped call without the viewer having to reconnect: sends a fresh
+   * offer with ICE restart so a new (possibly relayed) path can be negotiated.
+   */
+  private async restartConnection() {
+    if (this.state.slot == null || !this.state.viewerConnected) return;
+    const session = this.session;
+    if (!session || !this.state.roomCode || !session.getPeerConnection()) return;
+    if (this.restarting) return;
+    this.restarting = true;
+    try {
+      const offer = await session.createOffer({ iceRestart: true });
+      if (offer) this.signaling.sendOffer(this.state.roomCode, offer);
+    } catch (e) {
+      console.warn('ICE restart failed', e);
+    } finally {
+      this.restarting = false;
+    }
+  }
+
   private dropViewer() {
     if (!this.state.viewerConnected) return;
     this.session?.closePeerConnection(false);
@@ -300,6 +321,7 @@ class CameraHost {
         onConnectionStateChange: (peerState) => this.set({ peerState }),
         onDebug: (debug) => this.set({ debug }),
         onError: (error) => this.set({ error }),
+        onRestartNeeded: () => void this.restartConnection(),
         onControlMessage: (message) => {
           if (message.type === 'switch-camera') void this.switchCamera();
         },

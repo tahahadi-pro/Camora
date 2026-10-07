@@ -357,7 +357,7 @@ export default function CameraScreen() {
                 Peer: host.peerState,
                 Facing: host.facing,
                 Mic: host.micOn ? 'on' : 'off',
-                TURN: config.turnServer ? 'configured' : 'missing',
+                TURN: config.turnServers.length > 0 ? 'configured' : 'fallback relay',
               }}
             />
           )}
