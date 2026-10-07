@@ -236,6 +236,13 @@ export default function HomeScreen() {
               {webrtcReady ? 'Video engine ready' : 'Video engine unavailable (Expo Go)'}
             </Text>
           ) : null}
+          <Text
+            accessibilityRole="button"
+            accessibilityLabel="Privacy and stealth settings"
+            onPress={() => router.push('/stealth' as Href)}
+            style={styles.footerLink}>
+            Privacy & stealth
+          </Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -433,5 +440,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     textAlign: 'center',
+  },
+  footerLink: {
+    marginTop: Spacing.sm,
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });

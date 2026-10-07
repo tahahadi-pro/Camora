@@ -1,43 +1,43 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  AppState,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera } from 'expo-camera';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { CamoraRTCView } from '@/components/CamoraRTCView';
-import { ControlButton, StatusPill } from '@/components/ControlButton';
 import { ConnectionCard } from '@/components/ConnectionCard';
+import { ControlButton, StatusPill } from '@/components/ControlButton';
 import { DebugPanel } from '@/components/DebugPanel';
 import { WebRtcMissingBanner } from '@/components/WebRtcMissingBanner';
 import { Colors, ERROR_MESSAGES, Spacing } from '@/constants/theme';
 import { useDevMode } from '@/hooks/useLatency';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { cameraHost, disableCameraHost, useCameraHost } from '@/services/cameraHost';
-import {
-  canAutoStart,
-  isIgnoringBatteryOptimizations,
-  openAutoStartSettings,
-  requestIgnoreBatteryOptimizations,
-} from '../../modules/camora-background';
 import { isWebRtcAvailable } from '@/services/webrtc/native';
+import {
+    CAMERA_SLOTS,
+    clearSavedCameraSlot,
+    isValidCameraSlot,
+    loadSavedCameraSlot,
+} from '@/utils/cameraSlots';
 import { config } from '@/utils/config';
 import { encodeConnectionPayload, toDeepLink } from '@/utils/connectionPayload';
+import { Camera } from 'expo-camera';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  CAMERA_SLOTS,
-  clearSavedCameraSlot,
-  isValidCameraSlot,
-  loadSavedCameraSlot,
-} from '@/utils/cameraSlots';
+    ActivityIndicator,
+    Alert,
+    AppState,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+    canAutoStart,
+    isIgnoringBatteryOptimizations,
+    openAutoStartSettings,
+    requestIgnoreBatteryOptimizations,
+} from '../../modules/camora-background';
 
 type ScreenPhase = 'permissions' | 'ready' | 'error';
 
