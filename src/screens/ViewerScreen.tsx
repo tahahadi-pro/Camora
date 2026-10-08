@@ -188,21 +188,6 @@ export default function ViewerScreen() {
           });
         });
 
-        const result = await signaling.joinRoom(normalized, token || undefined);
-        if (!result.ok) {
-          if (result.error && WAITABLE_ERRORS.has(result.error)) {
-            setPhase('waiting');
-            scheduleRetry(normalized, token, signalingUrl);
-            return;
-          }
-          setPhase('enter');
-          setError(mapServerError(result.error));
-          return;
-        }
-
-        setCameraId(result.cameraId);
-        setSessionToken(result.sessionToken);
-
         const session = new WebRtcSession('viewer', {
           onRemoteStream: (stream) => {
             setRemoteStream(stream);
@@ -227,7 +212,28 @@ export default function ViewerScreen() {
 
         sessionRef.current = session;
         session.createPeerConnection();
+        // Register signaling handlers BEFORE joining: the server tells the camera
+        // "viewer-connected" the instant we join, and the camera replies with an offer
+        // right away. If the 'offer' listener isn't attached yet, socket.io drops that
+        // offer and the stream never starts (breaks switching to an already-warm camera).
         attachSignalingHandlers(session, normalized);
+
+        const result = await signaling.joinRoom(normalized, token || undefined);
+        if (!result.ok) {
+          session.dispose();
+          sessionRef.current = null;
+          if (result.error && WAITABLE_ERRORS.has(result.error)) {
+            setPhase('waiting');
+            scheduleRetry(normalized, token, signalingUrl);
+            return;
+          }
+          setPhase('enter');
+          setError(mapServerError(result.error));
+          return;
+        }
+
+        setCameraId(result.cameraId);
+        setSessionToken(result.sessionToken);
         setPhase('live');
       } catch (e) {
         if (e instanceof Error && e.message === 'SIGNALING_UNAVAILABLE') {
