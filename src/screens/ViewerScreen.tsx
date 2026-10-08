@@ -17,7 +17,7 @@ import { WebRtcMissingBanner } from '@/components/WebRtcMissingBanner';
 import { Colors, ERROR_MESSAGES, Spacing } from '@/constants/theme';
 import { useLatency, useDevMode } from '@/hooks/useLatency';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
-import { signaling } from '@/services/signaling/client';
+import { SignalingClient } from '@/services/signaling/client';
 import { isWebRtcAvailable } from '@/services/webrtc/native';
 import { WebRtcSession, WebRtcDebugState } from '@/services/webrtc/session';
 import { config } from '@/utils/config';
@@ -48,13 +48,14 @@ export default function ViewerScreen() {
   const [controlReady, setControlReady] = useState(false);
 
   const sessionRef = useRef<WebRtcSession | null>(null);
+  const [signaling] = useState(() => new SignalingClient());
   const roomCodeRef = useRef('');
   const waitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectRef = useRef<(room: string, token?: string, signalingUrl?: string) => Promise<void>>(
     async () => {},
   );
   const { network, onReconnect } = useNetworkStatus();
-  const latencyMs = useLatency(phase === 'live');
+  const latencyMs = useLatency(phase === 'live', signaling);
   const isDev = useDevMode();
 
   const clearWait = useCallback(() => {
@@ -85,7 +86,7 @@ export default function ViewerScreen() {
     sessionRef.current?.dispose();
     sessionRef.current = null;
     setRemoteStream(null);
-  }, []);
+  }, [signaling]);
 
   useEffect(() => {
     return () => {
@@ -145,7 +146,7 @@ export default function ViewerScreen() {
         setPhase((p) => (p === 'live' ? 'lost' : p));
       }
     });
-  }, [scheduleRetry]);
+  }, [scheduleRetry, signaling]);
 
   const connect = useCallback(
     async (room: string, token = '', signalingUrl = '') => {
@@ -239,7 +240,7 @@ export default function ViewerScreen() {
         setError(ERROR_MESSAGES.WEBRTC_FAILED);
       }
     },
-    [attachSignalingHandlers, cleanup, clearWait, scheduleRetry],
+    [attachSignalingHandlers, cleanup, clearWait, scheduleRetry, signaling],
   );
 
   useEffect(() => {

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { config } from '@/utils/config';
-import { signaling } from '@/services/signaling/client';
+import type { SignalingClient } from '@/services/signaling/client';
 
-export function useLatency(enabled: boolean, intervalMs = 3000) {
+export function useLatency(enabled: boolean, client: SignalingClient, intervalMs = 3000) {
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
 
   useEffect(() => {
@@ -11,7 +11,7 @@ export function useLatency(enabled: boolean, intervalMs = 3000) {
     let cancelled = false;
     const tick = async () => {
       try {
-        const ms = await signaling.measureLatency();
+        const ms = await client.measureLatency();
         if (!cancelled) setLatencyMs(ms);
       } catch {
         if (!cancelled) setLatencyMs(null);
@@ -24,7 +24,7 @@ export function useLatency(enabled: boolean, intervalMs = 3000) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [enabled, intervalMs]);
+  }, [enabled, intervalMs, client]);
 
   return latencyMs;
 }
