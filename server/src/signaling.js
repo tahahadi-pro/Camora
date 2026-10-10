@@ -34,15 +34,26 @@ export function attachSignaling(io, roomManager) {
           return;
         }
 
-        // A camera that reconnected gets a new socket id; free the slot if the old socket is gone.
+        // A camera that reconnected gets a new socket id; free the slot if the old socket is gone,
+        // or if it is the same phone (matching cameraKey) whose old socket hasn't timed out yet.
         const previous = roomManager.getRoom(data?.cameraId);
-        if (previous?.cameraSocketId && !io.sockets.sockets.has(previous.cameraSocketId)) {
-          roomManager.removeCamera(previous);
-          roomManager.removeViewer(previous);
+        if (previous?.cameraSocketId) {
+          const oldSocket = io.sockets.sockets.get(previous.cameraSocketId);
+          const samePhone = Boolean(data?.cameraKey) && data.cameraKey === previous.cameraKey;
+          if (!oldSocket || samePhone) {
+            const viewerSocketId = previous.viewerSocketId;
+            roomManager.removeCamera(previous);
+            roomManager.removeViewer(previous);
+            if (viewerSocketId) {
+              io.to(viewerSocketId).emit('camera-disconnected', { roomCode: previous.code });
+            }
+            oldSocket?.disconnect(true);
+          }
         }
 
         const room = roomManager.createRoom(socket.id, {
           cameraId: data?.cameraId,
+          cameraKey: data?.cameraKey,
         });
         socket.join(room.code);
         socket.data.role = 'camera';

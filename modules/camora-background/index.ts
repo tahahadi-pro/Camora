@@ -1,6 +1,10 @@
-import { requireOptionalNativeModule } from 'expo';
+import { NativeModule, requireOptionalNativeModule } from 'expo';
 
-type CamoraBackgroundModule = {
+type CamoraBackgroundEvents = {
+  onHeartbeat(): void;
+};
+
+declare class CamoraBackgroundModule extends NativeModule<CamoraBackgroundEvents> {
   isRunning(): boolean;
   start(title: string, body: string): Promise<void>;
   update(title: string, body: string): Promise<void>;
@@ -14,7 +18,9 @@ type CamoraBackgroundModule = {
   stopKeepAlive(): Promise<void>;
   isIgnoringBatteryOptimizations(): boolean;
   requestIgnoreBatteryOptimizations(): Promise<void>;
-};
+  startHeartbeat(intervalMs: number): Promise<void>;
+  stopHeartbeat(): Promise<void>;
+}
 
 /** Headless task key the native keep-alive starts; must be registered with AppRegistry. */
 export const KEEP_ALIVE_TASK = 'CamoraKeepAlive';
@@ -68,6 +74,20 @@ export async function startKeepAlive() {
 
 export async function stopKeepAlive() {
   await native?.stopKeepAlive();
+}
+
+/** Native timer that keeps firing in the background, unlike JS timers. */
+export async function startHeartbeat(intervalMs: number) {
+  await native?.startHeartbeat(intervalMs);
+}
+
+export async function stopHeartbeat() {
+  await native?.stopHeartbeat();
+}
+
+export function addHeartbeatListener(listener: () => void): () => void {
+  const subscription = native?.addListener('onHeartbeat', listener);
+  return () => subscription?.remove();
 }
 
 export function isIgnoringBatteryOptimizations() {

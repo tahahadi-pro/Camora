@@ -83,8 +83,9 @@ export class SignalingClient {
     }
   }
 
-  createRoom(cameraId: number | string): Promise<CreateRoomResult> {
-    return this.emitAck('create-room', { cameraId: String(cameraId) });
+  /** `cameraKey` lets the same phone take its number back from its own dead socket. */
+  createRoom(cameraId: number | string, cameraKey?: string): Promise<CreateRoomResult> {
+    return this.emitAck('create-room', { cameraId: String(cameraId), cameraKey });
   }
 
   joinRoom(roomCode: string, sessionToken?: string): Promise<JoinRoomResult> {
@@ -118,6 +119,11 @@ export class SignalingClient {
         resolve(Date.now() - sentAt);
       });
     });
+  }
+
+  /** Calls `onAck` when the server answers. Uses no JS timer, so it works in the background. */
+  ping(onAck: () => void) {
+    this.socket?.emit('ping-latency', Date.now(), () => onAck());
   }
 
   disconnect() {

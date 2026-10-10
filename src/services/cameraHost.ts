@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react';
 import { AppRegistry, AppState } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { Camera } from 'expo-camera';
+import * as Crypto from 'expo-crypto';
 import { ERROR_MESSAGES } from '@/constants/theme';
 import { SignalingClient } from '@/services/signaling/client';
 import { isWebRtcAvailable } from '@/services/webrtc/native';
@@ -10,12 +12,15 @@ import { config } from '@/utils/config';
 import { mapServerError } from '@/utils/errors';
 import {
   KEEP_ALIVE_TASK,
+  addHeartbeatListener,
   consumeBackgroundLaunch,
   moveAppToBackground,
   setAutoStartEnabled,
   startBackgroundService,
+  startHeartbeat,
   startKeepAlive,
   stopBackgroundService,
+  stopHeartbeat,
   stopKeepAlive,
   updateBackgroundService,
 } from '../../modules/camora-background';
@@ -54,6 +59,7 @@ AppRegistry.registerHeadlessTask(KEEP_ALIVE_TASK, () => () =>
 );
 
 const RECLAIM_RETRY_MS = 5000;
+const HEARTBEAT_MS = 15000;
 const BACKGROUND_LAUNCH_SETTLE_MS = 2000;
 const NOTIFICATION_TITLE = 'Camora';
 
@@ -85,6 +91,12 @@ class CameraHost {
   private previewHolders = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private restarting = false;
+  // Proves to the server that a reconnecting socket is this phone, so it can reclaim its number.
+  private readonly cameraKey = Crypto.randomUUID();
+  private pingPending = false;
+  private wasOnline = true;
+  private removeHeartbeatListener: (() => void) | null = null;
+  private removeNetInfoListener: (() => void) | null = null;
 
   getState = () => this.state;
 
@@ -112,6 +124,7 @@ class CameraHost {
     setAutoStartEnabled(true);
     this.set({ status: 'connecting', slot, error: null, micOn: options.micOn ?? this.state.micOn });
     this.connectSignaling(slot);
+    this.startWatchdog();
     await this.showNotification(`Camera ${slot} is ready — viewers can watch anytime`);
     await this.prepareCamera();
   }
@@ -138,6 +151,7 @@ class CameraHost {
 
   async stop() {
     this.clearRetry();
+    this.stopWatchdog();
     this.set({
       status: 'idle',
       slot: null,
@@ -196,6 +210,58 @@ class CameraHost {
     }
   }
 
+  /**
+   * Socket.io only notices a dead connection and retries via JS timers, which Android pauses
+   * in the background. A native heartbeat and network-change events drive reconnects instead.
+   */
+  private startWatchdog() {
+    this.stopWatchdog();
+    this.wasOnline = true;
+    this.removeHeartbeatListener = addHeartbeatListener(() => this.checkConnection());
+    void startHeartbeat(HEARTBEAT_MS);
+    this.removeNetInfoListener = NetInfo.addEventListener((net) => {
+      const online = Boolean(net.isConnected);
+      if (online && !this.wasOnline) this.forceReconnect();
+      this.wasOnline = online;
+    });
+  }
+
+  private stopWatchdog() {
+    this.removeHeartbeatListener?.();
+    this.removeHeartbeatListener = null;
+    this.removeNetInfoListener?.();
+    this.removeNetInfoListener = null;
+    this.pingPending = false;
+    void stopHeartbeat();
+  }
+
+  private checkConnection() {
+    const slot = this.state.slot;
+    if (slot == null) return;
+    if (!this.signaling.isConnected()) {
+      this.forceReconnect();
+      return;
+    }
+    if (this.pingPending) {
+      // The last ping was never answered: the socket is half-open after a network drop.
+      this.forceReconnect();
+      return;
+    }
+    this.pingPending = true;
+    this.signaling.ping(() => {
+      this.pingPending = false;
+    });
+    if (this.state.status === 'connecting') void this.claim(slot);
+  }
+
+  private forceReconnect() {
+    this.pingPending = false;
+    const socket = this.signaling.getSocket();
+    if (!socket) return;
+    socket.disconnect();
+    socket.connect();
+  }
+
   private connectSignaling(slot: number) {
     const signaling = this.signaling;
     signaling.connect(config.signalingUrl);
@@ -240,7 +306,7 @@ class CameraHost {
     this.clearRetry();
     if (this.state.slot !== slot) return;
     try {
-      const result = await this.signaling.createRoom(slot);
+      const result = await this.signaling.createRoom(slot, this.cameraKey);
       if (this.state.slot !== slot) return;
       if (!result.ok) throw new Error(result.error || 'CREATE_FAILED');
       this.set({

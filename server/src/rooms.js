@@ -35,7 +35,7 @@ export class RoomManager {
     if (this.cleanupTimer.unref) this.cleanupTimer.unref();
   }
 
-  createRoom(cameraSocketId, { cameraId } = {}) {
+  createRoom(cameraSocketId, { cameraId, cameraKey } = {}) {
     const slot = parseCameraSlot(cameraId);
     if (slot == null) {
       const error = new Error('INVALID_CAMERA_ID');
@@ -58,6 +58,7 @@ export class RoomManager {
       cameraId: code,
       sessionToken,
       cameraSocketId,
+      cameraKey: typeof cameraKey === 'string' ? cameraKey : null,
       viewerSocketId: existing?.viewerSocketId && existing.viewerSocketId !== cameraSocketId
         ? null
         : null,

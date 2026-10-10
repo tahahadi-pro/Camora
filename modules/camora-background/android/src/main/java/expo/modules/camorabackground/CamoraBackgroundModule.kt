@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import com.facebook.react.bridge.Arguments
@@ -21,6 +24,12 @@ class CamoraBackgroundModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("CamoraBackground")
+
+    Events(HEARTBEAT_EVENT)
+
+    OnDestroy {
+      stopHeartbeat()
+    }
 
     Function("isRunning") {
       CamoraStreamService.running
@@ -88,6 +97,20 @@ class CamoraBackgroundModule : Module() {
       null
     }.runOnQueue(Queues.MAIN)
 
+    // JS timers can still stall with the screen off, so connection checks are driven from here.
+    AsyncFunction("startHeartbeat") { intervalMs: Int ->
+      heartbeatIntervalMs = intervalMs.toLong().coerceAtLeast(MIN_HEARTBEAT_MS)
+      handler.removeCallbacks(heartbeat)
+      heartbeatRunning = true
+      handler.postDelayed(heartbeat, heartbeatIntervalMs)
+      null
+    }
+
+    AsyncFunction("stopHeartbeat") {
+      stopHeartbeat()
+      null
+    }
+
     Function("isIgnoringBatteryOptimizations") {
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
         true
@@ -120,7 +143,25 @@ class CamoraBackgroundModule : Module() {
 
   private var keepAliveTaskId: Int? = null
 
+  private val handler = Handler(Looper.getMainLooper())
+  private var heartbeatIntervalMs = MIN_HEARTBEAT_MS
+  private var heartbeatRunning = false
+  private val heartbeat = object : Runnable {
+    override fun run() {
+      if (!heartbeatRunning) return
+      sendEvent(HEARTBEAT_EVENT, Bundle())
+      handler.postDelayed(this, heartbeatIntervalMs)
+    }
+  }
+
+  private fun stopHeartbeat() {
+    heartbeatRunning = false
+    handler.removeCallbacks(heartbeat)
+  }
+
   companion object {
     private const val KEEP_ALIVE_TASK = "CamoraKeepAlive"
+    private const val HEARTBEAT_EVENT = "onHeartbeat"
+    private const val MIN_HEARTBEAT_MS = 5000L
   }
 }
