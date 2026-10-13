@@ -3,7 +3,7 @@
     "name": "Camora",
     "slug": "Camora",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "camora",
     "userInterfaceStyle": "dark",
@@ -92,6 +92,12 @@
         }
       ],
       "expo-secure-store",
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "PORTRAIT_UP"
+        }
+      ],
       [
         "expo-local-authentication",
         {

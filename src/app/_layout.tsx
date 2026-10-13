@@ -1,7 +1,10 @@
 import { Stack } from 'expo-router';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Colors } from '@/constants/theme';
 import LockScreen from '@/screens/LockScreen';
 import { resumeSavedCameraHost } from '@/services/cameraHost';
@@ -16,16 +19,26 @@ getWebRtcNative();
 export default function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
+    // The app allows rotation only so the viewer can go landscape in fullscreen.
+    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     void resumeSavedCameraHost().catch((e) => console.warn('Camera auto-start failed', e));
   }, []);
 
   return (
-    <StealthLockProvider>
-      <StatusBar style="light" />
-      <RootContent />
-    </StealthLockProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <StealthLockProvider>
+        <StatusBar style="light" />
+        <RootContent />
+      </StealthLockProvider>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});
 
 function RootContent() {
   const { locked } = useStealthLock();

@@ -178,9 +178,7 @@ export default function HomeScreen() {
             </Text>
             {host.slot != null ? (
               <Text style={styles.hostStatus}>
-                {host.viewerConnected
-                  ? `Camera ${host.slot} is live — a viewer is watching`
-                  : `Camera ${host.slot} is ready in the background — viewers can watch anytime`}
+                {host.viewerConnected ? `CCTV ${host.slot} · Live` : `CCTV ${host.slot} · Online`}
               </Text>
             ) : null}
             <TextInput
@@ -207,7 +205,7 @@ export default function HomeScreen() {
           </View>
           <ActionCard
             highlight
-            title="Use as Camera"
+            title="Use as CCTV"
             subtitle="Stream this phone’s camera"
             icon={(c) => <CameraIcon color={c} />}
             href="/camera"

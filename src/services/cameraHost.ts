@@ -125,7 +125,7 @@ class CameraHost {
     this.set({ status: 'connecting', slot, error: null, micOn: options.micOn ?? this.state.micOn });
     this.connectSignaling(slot);
     this.startWatchdog();
-    await this.showNotification(`Camera ${slot} is ready — viewers can watch anytime`);
+    await this.showNotification(`CCTV ${slot} · Online`);
     await this.prepareCamera();
   }
 
@@ -330,7 +330,7 @@ class CameraHost {
 
   private async onViewerConnected() {
     this.set({ viewerConnected: true, status: 'live', error: null });
-    void this.updateNotification(`Camera ${this.state.slot} is streaming to a viewer`);
+    void this.updateNotification(`CCTV ${this.state.slot} · Live`);
     try {
       const session = await this.ensureCamera();
       if (!this.state.viewerConnected) return;
@@ -371,7 +371,7 @@ class CameraHost {
       peerState: 'new',
       status: this.state.status === 'live' ? 'standby' : this.state.status,
     });
-    void this.updateNotification(`Camera ${this.state.slot} is ready — viewers can watch anytime`);
+    void this.updateNotification(`CCTV ${this.state.slot} · Online`);
     this.releaseCameraIfUnused();
   }
 

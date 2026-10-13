@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Pressable,
   StyleSheet,
   Text,
@@ -9,11 +10,14 @@ import {
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CamoraRTCView } from '@/components/CamoraRTCView';
 import { ControlButton, StatusPill } from '@/components/ControlButton';
 import { DebugPanel } from '@/components/DebugPanel';
 import { WebRtcMissingBanner } from '@/components/WebRtcMissingBanner';
+import { ZoomableVideo } from '@/components/ZoomableVideo';
 import { Colors, ERROR_MESSAGES, Spacing } from '@/constants/theme';
 import { useLatency, useDevMode } from '@/hooks/useLatency';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
@@ -43,6 +47,9 @@ export default function ViewerScreen() {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [audioOn, setAudioOn] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
+  const [landscape, setLandscape] = useState(true);
+  const [showControls, setShowControls] = useState(true);
+  const insets = useSafeAreaInsets();
   const [debug, setDebug] = useState<WebRtcDebugState | null>(null);
   const [peerState, setPeerState] = useState('new');
   const [controlReady, setControlReady] = useState(false);
@@ -57,6 +64,35 @@ export default function ViewerScreen() {
   const { network, onReconnect } = useNetworkStatus();
   const latencyMs = useLatency(phase === 'live', signaling);
   const isDev = useDevMode();
+
+  useEffect(() => {
+    const lock =
+      fullscreen && landscape
+        ? ScreenOrientation.OrientationLock.LANDSCAPE
+        : ScreenOrientation.OrientationLock.PORTRAIT_UP;
+    void ScreenOrientation.lockAsync(lock).catch(() => {});
+  }, [fullscreen, landscape]);
+
+  useEffect(() => {
+    return () => {
+      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setFullscreen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [fullscreen]);
+
+  const enterFullscreen = () => {
+    setLandscape(true);
+    setShowControls(true);
+    setFullscreen(true);
+  };
 
   const clearWait = useCallback(() => {
     if (waitTimerRef.current) {
@@ -337,38 +373,100 @@ export default function ViewerScreen() {
     );
   }
 
-  return (
-    <SafeAreaView style={[styles.safe, fullscreen && styles.fullscreenSafe]} edges={fullscreen ? [] : undefined}>
-      {!fullscreen && (
-        <View style={styles.header}>
-          <Pressable
-            onPress={async () => {
-              clearWait();
-              await cleanup();
-              router.back();
-            }}>
-            <Text style={styles.back}>← Back</Text>
-          </Pressable>
-          <StatusPill
-            label={
-              phase === 'live'
-                ? 'LIVE'
-                : phase === 'connecting'
-                  ? 'CONNECTING'
-                  : phase === 'waiting'
-                    ? 'WAITING'
-                    : 'LOST'
-            }
-            tone={
-              phase === 'live'
-                ? 'live'
-                : phase === 'connecting' || phase === 'waiting'
-                  ? 'connecting'
-                  : 'disconnected'
-            }
+  if (fullscreen) {
+    const controlsVisible = showControls || !streamUrl;
+    return (
+      <View style={styles.fullscreenRoot}>
+        <StatusBar hidden />
+        {streamUrl ? (
+          <ZoomableVideo
+            key={streamUrl}
+            streamURL={streamUrl}
+            objectFit="contain"
+            onTap={() => setShowControls((v) => !v)}
           />
-        </View>
-      )}
+        ) : (
+          <View style={styles.placeholder}>
+            {phase === 'connecting' || phase === 'waiting' ? (
+              <ActivityIndicator color={Colors.primary} size="large" />
+            ) : null}
+            <Text style={styles.placeholderText}>{error || 'Waiting for video…'}</Text>
+          </View>
+        )}
+
+        {controlsVisible && (
+          <>
+            <View
+              pointerEvents="none"
+              style={[
+                styles.fullscreenTop,
+                { top: insets.top + Spacing.sm, left: insets.left + Spacing.md, right: insets.right + Spacing.md },
+              ]}>
+              <StatusPill label={phase === 'live' ? 'LIVE' : '…'} tone={phase === 'live' ? 'live' : 'connecting'} />
+              <Text style={styles.overlayMeta}>Camera #{cameraId || roomCode}</Text>
+            </View>
+            <View
+              style={[
+                styles.fullscreenControls,
+                { bottom: insets.bottom + Spacing.sm, left: insets.left + Spacing.md, right: insets.right + Spacing.md },
+              ]}>
+              <ControlButton label="Exit Full" onPress={() => setFullscreen(false)} />
+              <ControlButton label="Rotate" onPress={() => setLandscape((v) => !v)} />
+              <ControlButton label={audioOn ? 'Audio ON' : 'Audio OFF'} onPress={toggleAudio} />
+              <ControlButton
+                label="Switch Cam"
+                onPress={switchRemoteCamera}
+                style={controlReady ? undefined : styles.dimmed}
+              />
+              {phase === 'lost' && (
+                <ControlButton
+                  variant="primary"
+                  label="RECONNECT"
+                  onPress={() => void connect(roomCode, sessionToken)}
+                />
+              )}
+            </View>
+            {streamUrl ? (
+              <Text pointerEvents="none" style={[styles.zoomHint, { top: insets.top + 56 }]}>
+                Pinch to zoom · Double-tap to zoom in/out · Tap to hide controls
+              </Text>
+            ) : null}
+          </>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <Pressable
+          onPress={async () => {
+            clearWait();
+            await cleanup();
+            router.back();
+          }}>
+          <Text style={styles.back}>← Back</Text>
+        </Pressable>
+        <StatusPill
+          label={
+            phase === 'live'
+              ? 'LIVE'
+              : phase === 'connecting'
+                ? 'CONNECTING'
+                : phase === 'waiting'
+                  ? 'WAITING'
+                  : 'LOST'
+          }
+          tone={
+            phase === 'live'
+              ? 'live'
+              : phase === 'connecting' || phase === 'waiting'
+                ? 'connecting'
+                : 'disconnected'
+          }
+        />
+      </View>
 
       <View style={styles.videoShell}>
         {streamUrl ? (
@@ -401,27 +499,25 @@ export default function ViewerScreen() {
         </View>
       </View>
 
-      {!fullscreen && (
-        <View style={styles.metaBlock}>
-          <Text style={styles.meta}>
-            {phase === 'live'
-              ? 'Camera Connected'
-              : phase === 'lost'
-                ? 'Camera connection lost'
-                : phase === 'waiting'
-                  ? 'Waiting for camera'
-                  : 'Connecting'}
-          </Text>
-          <Text style={styles.meta}>Latency: {formatLatency(latencyMs)}</Text>
-          <Text style={[styles.meta, !network.isConnected && styles.error]}>
-            Internet: {network.isConnected ? network.details : 'Connection lost'}
-          </Text>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-        </View>
-      )}
+      <View style={styles.metaBlock}>
+        <Text style={styles.meta}>
+          {phase === 'live'
+            ? 'Camera Connected'
+            : phase === 'lost'
+              ? 'Camera connection lost'
+              : phase === 'waiting'
+                ? 'Waiting for camera'
+                : 'Connecting'}
+        </Text>
+        <Text style={styles.meta}>Latency: {formatLatency(latencyMs)}</Text>
+        <Text style={[styles.meta, !network.isConnected && styles.error]}>
+          Internet: {network.isConnected ? network.details : 'Connection lost'}
+        </Text>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+      </View>
 
       <View style={styles.controls}>
-        <ControlButton label={fullscreen ? 'Exit Full' : 'Fullscreen'} onPress={() => setFullscreen((v) => !v)} />
+        <ControlButton label="Fullscreen / Zoom" onPress={enterFullscreen} />
         <ControlButton label={audioOn ? 'Audio ON' : 'Audio OFF'} onPress={toggleAudio} />
         <ControlButton
           label="Switch Cam"
@@ -441,7 +537,7 @@ export default function ViewerScreen() {
         />
       )}
 
-      {isDev && !fullscreen && (
+      {isDev && (
         <View style={{ paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md }}>
           <DebugPanel
             visible
@@ -460,8 +556,33 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  fullscreenSafe: {
+  fullscreenRoot: {
+    flex: 1,
     backgroundColor: '#000',
+  },
+  fullscreenTop: {
+    position: 'absolute',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  fullscreenControls: {
+    position: 'absolute',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+  },
+  zoomHint: {
+    position: 'absolute',
+    alignSelf: 'center',
+    color: Colors.text,
+    fontSize: 12,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
   header: {
     paddingHorizontal: Spacing.lg,
